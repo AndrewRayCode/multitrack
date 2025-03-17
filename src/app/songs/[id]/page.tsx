@@ -52,12 +52,19 @@ export default function SongPage() {
   const remainingBarsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentBeatRef = useRef(0);
   const [hasMicrophoneAccess, setHasMicrophoneAccess] = useState(false);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
 
   // Clean up animation frame on unmount
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (microphoneStreamRef.current) {
+        microphoneStreamRef.current
+          .getTracks()
+          .forEach((track) => track.stop());
+        microphoneStreamRef.current = null;
       }
     };
   }, []);
@@ -296,15 +303,19 @@ export default function SongPage() {
         }, totalDuration);
       }
 
-      // Request microphone access with specific constraints
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: false,
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+      // Use the stored stream if available, otherwise request a new one
+      let stream = microphoneStreamRef.current;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
+        microphoneStreamRef.current = stream;
+      }
 
       // Create and configure analyser node
       const analyser = audioContextRef.current.createAnalyser();
@@ -536,8 +547,8 @@ export default function SongPage() {
         },
       });
 
-      // Stop the stream immediately - we just wanted permission
-      stream.getTracks().forEach((track) => track.stop());
+      // Store the stream instead of stopping it
+      microphoneStreamRef.current = stream;
       setHasMicrophoneAccess(true);
       setErrorMessage(null);
     } catch (error) {
