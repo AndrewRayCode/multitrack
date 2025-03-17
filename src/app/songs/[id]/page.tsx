@@ -392,6 +392,7 @@ export default function SongPage() {
     } catch (error) {
       console.error('Error accessing microphone:', error);
       let errorMessage = 'Error accessing microphone. ';
+
       if (!error || typeof error !== 'object' || !('name' in error)) {
         errorMessage += 'Unknown error.';
       } else if (error.name === 'NotFoundError') {
@@ -402,6 +403,8 @@ export default function SongPage() {
           'Microphone access was denied. Please allow microphone access in your browser settings.';
       } else if (error.name === 'NotReadableError') {
         errorMessage += 'Microphone is already in use by another application.';
+      } else {
+        errorMessage += error.name + ' ' + error.toString();
       }
 
       setErrorMessage(errorMessage);
