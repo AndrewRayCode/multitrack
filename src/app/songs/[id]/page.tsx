@@ -565,6 +565,8 @@ export default function SongPage() {
           'Microphone access was denied. Please allow microphone access in your browser settings.';
       } else if (error.name === 'NotReadableError') {
         errorMessage += 'Microphone is already in use by another application.';
+      } else {
+        errorMessage += error.name;
       }
 
       setErrorMessage(errorMessage);
