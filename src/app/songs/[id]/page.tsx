@@ -409,6 +409,29 @@ export default function SongPage() {
         errorMessage += error.name + ' ' + error.toString();
       }
 
+      // Stop metronome
+      if (metronomeIntervalRef.current) {
+        clearInterval(metronomeIntervalRef.current);
+        metronomeIntervalRef.current = null;
+      }
+
+      setAudioChunks([]);
+      audioChunksRef.current = [];
+      setRecordingTime(0);
+
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      audioContextRef.current?.close();
+      audioContextRef.current = null;
+      analyserRef.current = null;
+      isRecordingRef.current = false;
+
+      // Reset volume meter
+      audioLevelRef.current = 0;
+      setAudioLevel(0);
+
       setErrorMessage(errorMessage);
       setIsRecording(false);
     }
