@@ -8,7 +8,7 @@ export default function HomePage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [bpm, setBpm] = useState(120);
-  const [numberOfBars, setNumberOfBars] = useState(8);
+  const [numberOfBars, setNumberOfBars] = useState(4);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,7 +103,7 @@ export default function HomePage() {
                   className="w-full px-4 py-2 rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none transition-all shadow-inner"
                   required
                   min={1}
-                  max={32}
+                  max={4}
                 />
               </div>
             </div>

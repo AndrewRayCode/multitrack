@@ -6,9 +6,10 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { id } = await params;
     const song = await prisma.song.findUnique({
       where: {
-        id: params.id,
+        id,
       },
       include: {
         tracks: true,
@@ -35,6 +36,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { id } = await params;
     await prisma.song.delete({
       where: {
         id: params.id,
