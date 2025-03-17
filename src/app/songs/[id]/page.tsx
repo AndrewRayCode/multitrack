@@ -334,7 +334,9 @@ export default function SongPage() {
 
       // Create MediaRecorder
       const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
+        mimeType: MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : 'audio/mp4',
         audioBitsPerSecond: 128000,
       });
 
