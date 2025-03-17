@@ -556,70 +556,99 @@ export default function SongPage() {
           </div>
         )}
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-semibold">Tracks</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">BPM: {song.bpm}</span>
-                <span className="text-sm font-medium">
-                  Bars: {song.numberOfBars}
-                </span>
-              </div>
-              {(countIn > 0 || isRecording) && (
-                <div
-                  className={`w-4 h-4 rounded-full transition-colors duration-100 ${
-                    isFlashing
-                      ? currentBeatRef.current === 0
-                        ? 'bg-blue-500'
-                        : 'bg-gray-500'
-                      : 'bg-transparent'
-                  } border-2 ${
-                    currentBeatRef.current === 0
-                      ? 'border-blue-500'
-                      : 'border-gray-500'
-                  }`}
-                />
-              )}
-              {countIn > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-blue-600">
-                    {countIn}
+        <div className="bg-gradient-to-b from-gray-700 to-gray-800 rounded-lg shadow-xl mb-8 border-t border-gray-600">
+          {/* Top control panel */}
+          <div className="p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 border-b border-gray-600 bg-gradient-to-r from-gray-700 via-gray-750 to-gray-700">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+              {/* LCD-style display for BPM and bars */}
+              <div className="bg-gray-900 px-3 sm:px-4 py-2 rounded-md shadow-inner flex items-center gap-4 border border-gray-700">
+                <div className="flex flex-col items-center">
+                  <span className="text-xs text-green-400 font-mono">BPM</span>
+                  <span className="text-base sm:text-lg text-green-500 font-mono font-bold">
+                    {song.bpm}
                   </span>
                 </div>
-              )}
-              <div className="flex items-center gap-4">
-                {remainingBars > 0 && (
-                  <span className="text-sm font-medium">
-                    {remainingBars} {remainingBars === 1 ? 'bar' : 'bars'}{' '}
-                    remaining
+                <div className="w-px h-8 bg-gray-700"></div>
+                <div className="flex flex-col items-center">
+                  <span className="text-xs text-green-400 font-mono">BARS</span>
+                  <span className="text-base sm:text-lg text-green-500 font-mono font-bold">
+                    {song.numberOfBars}
                   </span>
+                </div>
+              </div>
+
+              {/* Metronome light */}
+              {(countIn > 0 || isRecording) && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full ${
+                      isFlashing
+                        ? currentBeatRef.current === 0
+                          ? 'bg-blue-500 shadow-lg shadow-blue-500/50'
+                          : 'bg-amber-500 shadow-lg shadow-amber-500/50'
+                        : 'bg-gray-800'
+                    } border-2 ${
+                      currentBeatRef.current === 0
+                        ? 'border-blue-400'
+                        : 'border-amber-400'
+                    } shadow-inner transition-all duration-100`}
+                  />
+                  {countIn > 0 && (
+                    <span
+                      className="text-xl sm:text-2xl font-bold text-blue-400"
+                      style={{ textShadow: '0 0 10px rgba(59,130,246,0.5)' }}
+                    >
+                      {countIn}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* VU meter and recording info */}
+              <div className="flex flex-wrap items-center gap-4 bg-gray-900 p-2 sm:p-3 rounded-lg shadow-inner border border-gray-700">
+                {remainingBars > 0 && (
+                  <div className="flex flex-col items-center">
+                    <span className="text-xs text-amber-400 font-mono">
+                      REMAINING
+                    </span>
+                    <span className="text-base sm:text-lg text-amber-500 font-mono font-bold">
+                      {remainingBars} {remainingBars === 1 ? 'bar' : 'bars'}
+                    </span>
+                  </div>
                 )}
                 {isRecording && (
-                  <span className="text-green-500 font-mono">
-                    {formatTime(recordingTime)}
-                  </span>
+                  <div className="flex flex-col items-center px-3 border-l border-gray-700">
+                    <span className="text-xs text-red-400 font-mono">TIME</span>
+                    <span className="text-base sm:text-lg text-red-500 font-mono font-bold">
+                      {formatTime(recordingTime)}
+                    </span>
+                  </div>
                 )}
-                <div className="w-32 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-red-500 transition-all duration-100"
-                    style={{ width: `${audioLevel * 100}%` }}
-                  />
+                <div className="flex flex-col gap-1 flex-grow sm:flex-grow-0">
+                  <span className="text-xs text-gray-400 font-mono">LEVEL</span>
+                  <div className="w-full sm:w-32 h-3 bg-gray-800 rounded-sm shadow-inner overflow-hidden border border-gray-700">
+                    <div
+                      className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500"
+                      style={{ width: `${audioLevel * 100}%` }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="flex gap-4">
+
+            {/* Control buttons */}
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
               {!isRecording && countIn === 0 ? (
                 <button
                   onClick={startCountIn}
-                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-red-500 active:shadow-inner active:translate-y-px"
                 >
                   Start Recording
                 </button>
               ) : (
                 <button
                   onClick={stopRecording}
-                  className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed active:shadow-inner active:translate-y-px"
                   disabled={countIn > 0}
                 >
                   Stop Recording
@@ -628,7 +657,7 @@ export default function SongPage() {
               {song.tracks.length > 0 && (
                 <button
                   onClick={isPlaying ? stopAllTracks : playAllTracks}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-blue-500 active:shadow-inner active:translate-y-px"
                 >
                   {isPlaying ? 'Stop' : 'Play All'}
                 </button>
@@ -636,7 +665,8 @@ export default function SongPage() {
             </div>
           </div>
 
-          <div className="space-y-4">
+          {/* Tracks list */}
+          <div className="p-6 space-y-4 bg-white dark:bg-gray-800">
             {song.tracks.map((track) => (
               <div
                 key={track.id}
