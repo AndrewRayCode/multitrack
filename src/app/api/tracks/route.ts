@@ -1,40 +1,74 @@
-import { NextResponse } from 'next/server'
-import { S3 } from 'aws-sdk'
-import { prisma } from '@/lib/prisma'
-import { v4 as uuidv4 } from 'uuid'
+import { NextResponse } from 'next/server';
+import { S3Client } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
+import { prisma } from '@/lib/prisma';
+import { v4 as uuidv4 } from 'uuid';
 
-const s3 = new S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+const s3Client = new S3Client({
   region: process.env.AWS_REGION,
-})
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
 
 export async function POST(request: Request) {
+  console.log('POST');
   try {
-    const formData = await request.formData()
-    const audio = formData.get('audio') as Blob
-    const songId = formData.get('songId') as string
+    const formData = await request.formData();
+    const audio = formData.get('audio') as Blob;
+    const songId = formData.get('songId') as string;
+    console.log({ audio, songId });
 
     if (!audio || !songId) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
-      )
+      );
+    }
+
+    // Check if the audio file is empty
+    if (audio.size === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Audio file is empty. Please record some audio before uploading.',
+        },
+        { status: 400 }
+      );
     }
 
     // Convert blob to buffer
-    const buffer = Buffer.from(await audio.arrayBuffer())
-    const key = `tracks/${uuidv4()}.wav`
+    const buffer = Buffer.from(await audio.arrayBuffer());
 
-    // Upload to S3
-    await s3
-      .upload({
+    // Double-check buffer size
+    if (buffer.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Audio buffer is empty. Please record some audio before uploading.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const key = `tracks/${uuidv4()}.webm`;
+
+    console.log('making upload');
+    // Upload to S3 using multipart upload
+    const upload = new Upload({
+      client: s3Client,
+      params: {
         Bucket: process.env.AWS_BUCKET_NAME!,
         Key: key,
         Body: buffer,
-        ContentType: 'audio/wav',
-      })
-      .promise()
+        ContentType: 'audio/webm',
+      },
+    });
+
+    await upload.done();
+
+    console.log('hi');
 
     // Create track in database
     const track = await prisma.track.create({
@@ -42,14 +76,15 @@ export async function POST(request: Request) {
         songId,
         audioUrl: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
       },
-    })
+    });
 
-    return NextResponse.json(track)
+    console.log('done');
+    return NextResponse.json(track);
   } catch (error) {
-    console.error('Error handling track upload:', error)
+    console.error('Error handling track upload:', error);
     return NextResponse.json(
       { error: 'Error uploading track' },
       { status: 500 }
-    )
+    );
   }
-} 
+}

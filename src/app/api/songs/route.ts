@@ -1,20 +1,20 @@
-import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(request: Request) {
   try {
-    const json = await request.json()
+    const json = await request.json();
     const song = await prisma.song.create({
       data: {
         name: json.name,
+        bpm: Math.max(30, Math.min(300, json.bpm || 120)),
+        numberOfBars: Math.max(1, Math.min(4, json.numberOfBars || 4)),
       },
-    })
-    return NextResponse.json(song)
+    });
+    return NextResponse.json(song);
   } catch (error) {
-    return NextResponse.json(
-      { error: 'Error creating song' },
-      { status: 500 }
-    )
+    console.error(error);
+    return NextResponse.json({ error: 'Error creating song' }, { status: 500 });
   }
 }
 
@@ -27,12 +27,12 @@ export async function GET() {
       orderBy: {
         createdAt: 'desc',
       },
-    })
-    return NextResponse.json(songs)
+    });
+    return NextResponse.json(songs);
   } catch (error) {
     return NextResponse.json(
       { error: 'Error fetching songs' },
       { status: 500 }
-    )
+    );
   }
-} 
+}

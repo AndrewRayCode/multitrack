@@ -1,32 +1,29 @@
-import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
+    const { id } = await params;
+
     const song = await prisma.song.findUnique({
       where: {
-        id: params.id,
+        id,
       },
       include: {
         tracks: true,
       },
-    })
+    });
 
     if (!song) {
-      return NextResponse.json(
-        { error: 'Song not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Song not found' }, { status: 404 });
     }
 
-    return NextResponse.json(song)
+    return NextResponse.json(song);
   } catch (error) {
-    return NextResponse.json(
-      { error: 'Error fetching song' },
-      { status: 500 }
-    )
+    console.error('Error fetching song:', error);
+    return NextResponse.json({ error: 'Error fetching song' }, { status: 500 });
   }
-} 
+}

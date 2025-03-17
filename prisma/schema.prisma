@@ -14,11 +14,13 @@ datasource db {
 }
 
 model Song {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tracks    Track[]
+  id           String   @id @default(uuid())
+  name         String
+  bpm          Int     @default(120)
+  numberOfBars Int     @default(4)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  tracks       Track[]
 }
 
 model Track {
