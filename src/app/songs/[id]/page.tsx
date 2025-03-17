@@ -11,6 +11,10 @@ interface Track {
   createdAt: string;
 }
 
+interface AudioBufferCache {
+  [trackId: string]: AudioBuffer;
+}
+
 interface Song {
   id: string;
   name: string;
@@ -25,6 +29,8 @@ export default function SongPage() {
   const [song, setSong] = useState<Song | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [remainingBars, setRemainingBars] = useState(0);
+  const [isFlashing, setIsFlashing] = useState(false);
   const audioLevelRef = useRef(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -39,11 +45,13 @@ export default function SongPage() {
   const [countIn, setCountIn] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const audioBufferCacheRef = useRef<AudioBufferCache>({});
   const metronomeIntervalRef = useRef<number | null>(null);
   const countInTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const metronomeBufferRef = useRef<AudioBuffer | null>(null);
   const metronomeContext = useRef<AudioContext | null>(null);
   const metronomeGainRef = useRef<GainNode | null>(null);
+  const remainingBarsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentBeatRef = useRef(0);
 
   // Clean up animation frame on unmount
   useEffect(() => {
@@ -80,27 +88,8 @@ export default function SongPage() {
       .catch((error) => console.error('Error fetching song:', error));
   }, [params.id]);
 
-  // Load metronome sound file once
-  useEffect(() => {
-    const loadMetronome = async () => {
-      try {
-        const response = await fetch('/metronome.mp3');
-        const arrayBuffer = await response.arrayBuffer();
-
-        // Create a temporary context just for decoding
-        metronomeContext.current = new AudioContext();
-        metronomeBufferRef.current =
-          await metronomeContext.current.decodeAudioData(arrayBuffer);
-      } catch (error) {
-        console.error('Error loading metronome sound:', error);
-      }
-    };
-
-    loadMetronome();
-  }, []);
-
   const updateAudioLevel = () => {
-    if (!analyserRef.current || !isRecordingRef.current) {
+    if (!analyserRef.current) {
       return;
     }
 
@@ -132,7 +121,9 @@ export default function SongPage() {
   };
 
   const playMetronomeClick = () => {
-    if (!metronomeContext.current || !metronomeBufferRef.current) return;
+    if (!metronomeContext.current) {
+      metronomeContext.current = new AudioContext();
+    }
 
     // Create gain node if it doesn't exist
     if (!metronomeGainRef.current) {
@@ -141,10 +132,32 @@ export default function SongPage() {
       metronomeGainRef.current.connect(metronomeContext.current.destination);
     }
 
-    const source = metronomeContext.current.createBufferSource();
-    source.buffer = metronomeBufferRef.current;
-    source.connect(metronomeGainRef.current);
-    source.start();
+    // Create and configure oscillator
+    const oscillator = metronomeContext.current.createOscillator();
+    oscillator.type = 'sine';
+
+    // Use higher frequency (1760 Hz) for first beat of bar, normal (880 Hz) for others
+    oscillator.frequency.value = currentBeatRef.current === 0 ? 1760 : 880;
+
+    // Connect oscillator to gain node
+    oscillator.connect(metronomeGainRef.current);
+
+    // Schedule the click sound (short duration)
+    const now = metronomeContext.current.currentTime;
+    oscillator.start(now);
+    oscillator.stop(now + 0.05); // 50ms duration
+
+    // Trigger flash animation
+    setIsFlashing(true);
+    setTimeout(() => setIsFlashing(false), 100);
+
+    // Clean up oscillator when done
+    setTimeout(() => {
+      oscillator.disconnect();
+    }, 100);
+
+    // Update beat counter (0-3 for 4/4 time)
+    currentBeatRef.current = (currentBeatRef.current + 1) % 4;
   };
 
   const startCountIn = async () => {
@@ -161,14 +174,15 @@ export default function SongPage() {
     }
 
     const beatInterval = (60 / song.bpm) * 1000;
-    setCountIn(4);
+    setCountIn(5);
+    currentBeatRef.current = 0; // Reset beat counter
 
     // Schedule the count-in clicks
-    for (let i = 4; i > 0; i--) {
+    for (let i = 4; i >= 0; i--) {
       countInTimeoutRef.current = setTimeout(() => {
-        setCountIn(i - 1);
+        setCountIn(i);
         playMetronomeClick();
-        if (i === 1) {
+        if (i === 0) {
           startRecording();
         }
       }, (4 - i) * beatInterval);
@@ -185,6 +199,7 @@ export default function SongPage() {
       dataArrayRef.current = null;
       audioLevelRef.current = 0;
       setAudioLevel(0);
+      setRemainingBars(song.numberOfBars);
 
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext();
@@ -195,14 +210,31 @@ export default function SongPage() {
         await audioContextRef.current.resume();
       }
 
+      // Calculate total recording duration based on BPM and number of bars
+      // 4 beats per bar, duration in milliseconds
+      const beatDuration = (60 / song.bpm) * 1000;
+      const totalDuration = beatDuration * 4 * song.numberOfBars;
+      const barDuration = beatDuration * 4;
+
       // Start metronome if BPM is set
       if (song.bpm > 0) {
-        const intervalMs = (60 / song.bpm) * 1000;
-        playMetronomeClick(); // Play first click immediately
+        const intervalMs = beatDuration;
         metronomeIntervalRef.current = window.setInterval(
           playMetronomeClick,
           intervalMs
         );
+
+        // Update remaining bars every bar
+        remainingBarsIntervalRef.current = setInterval(() => {
+          setRemainingBars((prev) => Math.max(0, prev - 1));
+        }, barDuration);
+
+        // Schedule recording stop after the specified duration
+        setTimeout(() => {
+          if (isRecordingRef.current) {
+            stopRecording();
+          }
+        }, totalDuration);
       }
 
       // Request microphone access with specific constraints
@@ -226,6 +258,9 @@ export default function SongPage() {
       // Create source from microphone stream and connect to analyser
       const micSource = audioContextRef.current.createMediaStreamSource(stream);
       micSource.connect(analyser);
+
+      // Start volume meter immediately after connecting microphone
+      updateAudioLevel();
 
       // Create MediaRecorder
       const recorder = new MediaRecorder(stream, {
@@ -260,8 +295,6 @@ export default function SongPage() {
         setAudioChunks([]);
         audioChunksRef.current = [];
         setRecordingTime(0);
-        audioLevelRef.current = 0;
-        setAudioLevel(0);
 
         // Clean up
         stream.getTracks().forEach((track) => track.stop());
@@ -269,18 +302,23 @@ export default function SongPage() {
         analyser.disconnect();
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
         }
         audioContextRef.current?.close();
         audioContextRef.current = null;
         analyserRef.current = null;
         isRecordingRef.current = false;
+
+        // Reset volume meter
+        audioLevelRef.current = 0;
+        setAudioLevel(0);
       };
 
       mediaRecorder.current = recorder;
       recorder.start(); // Collect data every second
       setIsRecording(true);
       isRecordingRef.current = true;
-      updateAudioLevel();
+      playAllTracks();
     } catch (error: any) {
       console.error('Error accessing microphone:', error);
       let errorMessage = 'Error accessing microphone. ';
@@ -319,6 +357,12 @@ export default function SongPage() {
       metronomeIntervalRef.current = null;
     }
 
+    // Clean up remaining bars interval
+    if (remainingBarsIntervalRef.current) {
+      clearInterval(remainingBarsIntervalRef.current);
+      remainingBarsIntervalRef.current = null;
+    }
+
     // Clean up metronome gain
     if (metronomeGainRef.current) {
       metronomeGainRef.current.disconnect();
@@ -326,6 +370,8 @@ export default function SongPage() {
     }
 
     setCountIn(0);
+    setRemainingBars(0);
+    currentBeatRef.current = 0; // Reset beat counter
   };
 
   const uploadTrack = async (audioBlob: Blob) => {
@@ -365,7 +411,9 @@ export default function SongPage() {
   };
 
   const playAllTracks = async () => {
-    if (!song?.tracks.length) return;
+    if (!song?.tracks.length) {
+      return;
+    }
 
     try {
       if (!audioContextRef.current) {
@@ -387,9 +435,15 @@ export default function SongPage() {
 
       // Load and play all tracks
       const playPromises = song.tracks.map(async (track) => {
-        const response = await fetch(track.audioUrl);
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        let audioBuffer = audioBufferCacheRef.current[track.id];
+
+        // If buffer isn't cached, fetch and decode it
+        if (!audioBuffer) {
+          const response = await fetch(track.audioUrl);
+          const arrayBuffer = await response.arrayBuffer();
+          audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          audioBufferCacheRef.current[track.id] = audioBuffer;
+        }
 
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
@@ -442,6 +496,9 @@ export default function SongPage() {
         throw new Error(error.error || 'Failed to delete track');
       }
 
+      // Remove the track's buffer from cache
+      delete audioBufferCacheRef.current[trackId];
+
       // Refresh song data to update the tracks list
       const updatedSong = await fetch(`/api/songs/${params.id}`).then((res) =>
         res.json()
@@ -461,6 +518,11 @@ export default function SongPage() {
       .toString()
       .padStart(2, '0')}`;
   };
+
+  // Clear audio buffer cache when song changes
+  useEffect(() => {
+    audioBufferCacheRef.current = {};
+  }, [song?.id]);
 
   if (!song) {
     return <div className="p-8">Loading...</div>;
@@ -504,6 +566,21 @@ export default function SongPage() {
                   Bars: {song.numberOfBars}
                 </span>
               </div>
+              {(countIn > 0 || isRecording) && (
+                <div
+                  className={`w-4 h-4 rounded-full transition-colors duration-100 ${
+                    isFlashing
+                      ? currentBeatRef.current === 0
+                        ? 'bg-blue-500'
+                        : 'bg-gray-500'
+                      : 'bg-transparent'
+                  } border-2 ${
+                    currentBeatRef.current === 0
+                      ? 'border-blue-500'
+                      : 'border-gray-500'
+                  }`}
+                />
+              )}
               {countIn > 0 && (
                 <div className="flex items-center gap-2">
                   <span className="text-2xl font-bold text-blue-600">
@@ -511,19 +588,25 @@ export default function SongPage() {
                   </span>
                 </div>
               )}
-              {isRecording && (
-                <div className="flex items-center gap-4">
-                  <span className="text-red-500 font-mono">
+              <div className="flex items-center gap-4">
+                {remainingBars > 0 && (
+                  <span className="text-sm font-medium">
+                    {remainingBars} {remainingBars === 1 ? 'bar' : 'bars'}{' '}
+                    remaining
+                  </span>
+                )}
+                {isRecording && (
+                  <span className="text-green-500 font-mono">
                     {formatTime(recordingTime)}
                   </span>
-                  <div className="w-32 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-red-500 transition-all duration-100"
-                      style={{ width: `${audioLevel * 100}%` }}
-                    />
-                  </div>
+                )}
+                <div className="w-32 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-500 transition-all duration-100"
+                    style={{ width: `${audioLevel * 100}%` }}
+                  />
                 </div>
-              )}
+              </div>
             </div>
             <div className="flex gap-4">
               {!isRecording && countIn === 0 ? (
