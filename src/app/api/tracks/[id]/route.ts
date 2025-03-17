@@ -12,12 +12,13 @@ const s3Client = new S3Client({
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Get the track to find its S3 key
     const track = await prisma.track.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { audioUrl: true },
     });
 
@@ -38,7 +39,7 @@ export async function DELETE(
 
     // Delete from database
     await prisma.track.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true });
