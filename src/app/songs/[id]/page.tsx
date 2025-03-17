@@ -540,11 +540,13 @@ export default function SongPage() {
       stream.getTracks().forEach((track) => track.stop());
       setHasMicrophoneAccess(true);
       setErrorMessage(null);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error accessing microphone:', error);
       let errorMessage = 'Error accessing microphone. ';
 
-      if (error.name === 'NotFoundError') {
+      if (!error || typeof error !== 'object' || !('name' in error)) {
+        errorMessage += 'Unknown error.';
+      } else if (error.name === 'NotFoundError') {
         errorMessage +=
           'No microphone found. Please ensure a microphone is connected and allowed.';
       } else if (error.name === 'NotAllowedError') {
