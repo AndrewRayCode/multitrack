@@ -51,6 +51,7 @@ export default function SongPage() {
   const metronomeGainRef = useRef<GainNode | null>(null);
   const remainingBarsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentBeatRef = useRef(0);
+  const [hasMicrophoneAccess, setHasMicrophoneAccess] = useState(false);
 
   // Clean up animation frame on unmount
   useEffect(() => {
@@ -524,6 +525,39 @@ export default function SongPage() {
     audioBufferCacheRef.current = {};
   }, [song?.id]);
 
+  const requestMicrophoneAccess = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+
+      // Stop the stream immediately - we just wanted permission
+      stream.getTracks().forEach((track) => track.stop());
+      setHasMicrophoneAccess(true);
+      setErrorMessage(null);
+    } catch (error: any) {
+      console.error('Error accessing microphone:', error);
+      let errorMessage = 'Error accessing microphone. ';
+
+      if (error.name === 'NotFoundError') {
+        errorMessage +=
+          'No microphone found. Please ensure a microphone is connected and allowed.';
+      } else if (error.name === 'NotAllowedError') {
+        errorMessage +=
+          'Microphone access was denied. Please allow microphone access in your browser settings.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage += 'Microphone is already in use by another application.';
+      }
+
+      setErrorMessage(errorMessage);
+    }
+  };
+
   if (!song) {
     return <div className="p-8">Loading...</div>;
   }
@@ -639,12 +673,21 @@ export default function SongPage() {
             {/* Control buttons */}
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
               {!isRecording && countIn === 0 ? (
-                <button
-                  onClick={startCountIn}
-                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-red-500 active:shadow-inner active:translate-y-px"
-                >
-                  Start Recording
-                </button>
+                !hasMicrophoneAccess ? (
+                  <button
+                    onClick={requestMicrophoneAccess}
+                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-blue-500 active:shadow-inner active:translate-y-px"
+                  >
+                    Enable Microphone
+                  </button>
+                ) : (
+                  <button
+                    onClick={startCountIn}
+                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-red-500 active:shadow-inner active:translate-y-px"
+                  >
+                    Start Recording
+                  </button>
+                )
               ) : (
                 <button
                   onClick={stopRecording}
