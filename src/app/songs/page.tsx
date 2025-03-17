@@ -3,12 +3,18 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+interface Track {
+  id: string;
+  audioUrl: string;
+  createdAt: string;
+}
+
 interface Song {
   id: string;
   name: string;
   bpm: number;
   numberOfBars: number;
-  tracks: any[];
+  tracks: Track[];
   createdAt: string;
 }
 

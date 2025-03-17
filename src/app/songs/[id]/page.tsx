@@ -188,6 +188,65 @@ export default function SongPage() {
     }
   };
 
+  const playAllTracks = async () => {
+    if (!song?.tracks.length) {
+      return;
+    }
+
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+      }
+
+      const ctx = audioContextRef.current;
+      setIsPlaying(true);
+
+      // Stop any currently playing sources
+      audioSourcesRef.current.forEach((source) => {
+        try {
+          source.stop();
+        } catch (e) {
+          // Ignore if already stopped
+        }
+      });
+      audioSourcesRef.current = [];
+
+      // Load and play all tracks
+      const playPromises = song.tracks.map(async (track) => {
+        let audioBuffer = audioBufferCacheRef.current[track.id];
+
+        // If buffer isn't cached, fetch and decode it
+        if (!audioBuffer) {
+          const response = await fetch(track.audioUrl);
+          const arrayBuffer = await response.arrayBuffer();
+          audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          audioBufferCacheRef.current[track.id] = audioBuffer;
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.destination);
+        audioSourcesRef.current.push(source);
+
+        source.start(0);
+        source.onended = () => {
+          const index = audioSourcesRef.current.indexOf(source);
+          if (index > -1) {
+            audioSourcesRef.current.splice(index, 1);
+          }
+          if (audioSourcesRef.current.length === 0) {
+            setIsPlaying(false);
+          }
+        };
+      });
+
+      await Promise.all(playPromises);
+    } catch (error) {
+      console.error('Error playing tracks:', error);
+      setIsPlaying(false);
+    }
+  };
+
   const startRecording = async () => {
     if (!song) return;
 
@@ -318,11 +377,12 @@ export default function SongPage() {
       setIsRecording(true);
       isRecordingRef.current = true;
       playAllTracks();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error accessing microphone:', error);
       let errorMessage = 'Error accessing microphone. ';
-
-      if (error.name === 'NotFoundError') {
+      if (!error || typeof error !== 'object' || !('name' in error)) {
+        errorMessage += 'Unknown error.';
+      } else if (error.name === 'NotFoundError') {
         errorMessage +=
           'No microphone found. Please ensure a microphone is connected and allowed.';
       } else if (error.name === 'NotAllowedError') {
@@ -406,65 +466,6 @@ export default function SongPage() {
       setErrorMessage(
         error instanceof Error ? error.message : 'Error uploading track'
       );
-    }
-  };
-
-  const playAllTracks = async () => {
-    if (!song?.tracks.length) {
-      return;
-    }
-
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext();
-      }
-
-      const ctx = audioContextRef.current;
-      setIsPlaying(true);
-
-      // Stop any currently playing sources
-      audioSourcesRef.current.forEach((source) => {
-        try {
-          source.stop();
-        } catch (e) {
-          // Ignore if already stopped
-        }
-      });
-      audioSourcesRef.current = [];
-
-      // Load and play all tracks
-      const playPromises = song.tracks.map(async (track) => {
-        let audioBuffer = audioBufferCacheRef.current[track.id];
-
-        // If buffer isn't cached, fetch and decode it
-        if (!audioBuffer) {
-          const response = await fetch(track.audioUrl);
-          const arrayBuffer = await response.arrayBuffer();
-          audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-          audioBufferCacheRef.current[track.id] = audioBuffer;
-        }
-
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(ctx.destination);
-        audioSourcesRef.current.push(source);
-
-        source.start(0);
-        source.onended = () => {
-          const index = audioSourcesRef.current.indexOf(source);
-          if (index > -1) {
-            audioSourcesRef.current.splice(index, 1);
-          }
-          if (audioSourcesRef.current.length === 0) {
-            setIsPlaying(false);
-          }
-        };
-      });
-
-      await Promise.all(playPromises);
-    } catch (error) {
-      console.error('Error playing tracks:', error);
-      setIsPlaying(false);
     }
   };
 
