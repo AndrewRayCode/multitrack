@@ -3,11 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Metadata } from 'next';
-export const metadata: Metadata = {
-  title: 'Multitrack Recorder',
-  description: 'Record and edit garbage with friends!',
-};
 
 interface Track {
   id: string;
