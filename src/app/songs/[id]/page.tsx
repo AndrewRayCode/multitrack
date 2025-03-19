@@ -52,6 +52,7 @@ export default function SongPage() {
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [countIn, setCountIn] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const audioBufferCacheRef = useRef<AudioBufferCache>({});
@@ -620,6 +621,7 @@ export default function SongPage() {
         return;
       }
 
+      setIsUploading(true);
       const formData = new FormData();
       formData.append('audio', audioBlob);
       formData.append('songId', params.id as string);
@@ -645,6 +647,8 @@ export default function SongPage() {
       setErrorMessage(
         error instanceof Error ? error.message : 'Error uploading track'
       );
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -699,6 +703,11 @@ export default function SongPage() {
     }
 
     try {
+      // Stop the track if it's playing
+      if (trackSourcesRef.current[trackId]) {
+        stopTrack(trackId);
+      }
+
       const response = await fetch(`/api/tracks/${trackId}`, {
         method: 'DELETE',
       });
@@ -945,21 +954,21 @@ export default function SongPage() {
           </div>
         )}
 
-        <div className="bg-gradient-to-b from-gray-700 to-gray-800 rounded-lg shadow-xl mb-8 border-t border-gray-600">
+        <div className="bg-gradient-to-b from-gray-700 to-gray-800 rounded-lg shadow-xl mb-8">
           {/* Top control panel */}
-          <div className="p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 border-b border-gray-600 bg-gradient-to-r from-gray-700 via-gray-750 to-gray-700">
+          <div className="panel rounded-t-xl p-2 sm:px-6 sm:py-2 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 flex-col-reverse">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
               {/* LCD-style display for BPM and bars */}
-              <div className="bg-gray-900 px-3 sm:px-4 py-2 rounded-md shadow-inner flex items-center gap-4 border border-gray-700">
+              <div className="screen px-3 sm:px-4 py-2 flex items-center justify-center gap-4">
                 <div className="flex flex-col items-center">
-                  <span className="text-xs text-green-400 font-mono">BPM</span>
+                  <span className="text-xs font-mono">BPM</span>
                   <span className="text-base sm:text-lg text-green-500 font-mono font-bold">
                     {song.bpm}
                   </span>
                 </div>
                 <div className="w-px h-8 bg-gray-700"></div>
                 <div className="flex flex-col items-center">
-                  <span className="text-xs text-green-400 font-mono">BARS</span>
+                  <span className="text-xs font-mono">BARS</span>
                   <span className="text-base sm:text-lg text-green-500 font-mono font-bold">
                     {song.numberOfBars}
                   </span>
@@ -994,7 +1003,7 @@ export default function SongPage() {
               )}
 
               {/* VU meter and recording info */}
-              <div className="flex flex-wrap items-center gap-4 bg-gray-900 p-2 sm:p-3 rounded-lg shadow-inner border border-gray-700">
+              <div className="flex flex-wrap items-center gap-4 screen p-3">
                 {remainingBars > 0 && (
                   <div className="flex flex-col items-center">
                     <span className="text-xs text-amber-400 font-mono">
@@ -1014,9 +1023,7 @@ export default function SongPage() {
                   </div>
                 )}
                 <div className="flex flex-col gap-1 flex-grow sm:flex-grow-0">
-                  <span className="text-xs text-gray-400 font-mono">
-                    MIC LEVEL
-                  </span>
+                  <span className="text-xs font-mono">MIC LEVEL</span>
                   <div className="w-full sm:w-32 h-3 bg-gray-800 rounded-sm shadow-inner overflow-hidden border border-gray-700">
                     <div
                       className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500"
@@ -1029,27 +1036,21 @@ export default function SongPage() {
 
             {/* Control buttons */}
             <div className="flex flex-col gap-4">
-              <div className="flex flex-row gap-2">
+              <div className="flex flex-row gap-1 tray p-1">
                 {!isRecording && countIn === 0 ? (
                   !hasMicrophoneAccess ? (
-                    <button
-                      onClick={requestMicrophoneAccess}
-                      className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-blue-500 active:shadow-inner active:translate-y-px"
-                    >
+                    <button onClick={requestMicrophoneAccess} className="chonk">
                       Enable Microphone
                     </button>
                   ) : (
-                    <button
-                      onClick={startCountIn}
-                      className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-red-500 active:shadow-inner active:translate-y-px"
-                    >
+                    <button onClick={startCountIn} className="chonk">
                       Start Recording
                     </button>
                   )
                 ) : (
                   <button
                     onClick={stopRecording}
-                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed active:shadow-inner active:translate-y-px"
+                    className="chonk"
                     disabled={countIn > 0}
                   >
                     Stop Recording
@@ -1058,7 +1059,7 @@ export default function SongPage() {
                 {song.tracks.length > 0 && (
                   <button
                     onClick={playAllTracks}
-                    className="disabled:opacity-50 disabled:cursor-not-allowed w-12 h-12 flex-shrink-0 flex items-center justify-center bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors shadow-lg border border-blue-500 active:shadow-inner"
+                    className="chonk square blue"
                     title={isPlaying ? 'Stop' : 'Play'}
                     disabled={isRecording || !!countIn}
                   >
@@ -1101,31 +1102,54 @@ export default function SongPage() {
                 )}
               </div>
               {song.tracks.length > 0 && (
-                <div className="h-4 w-full bg-gray-900 rounded-full overflow-hidden shadow-inner border border-gray-700">
-                  <div
-                    className="h-full bg-blue-500"
-                    style={{
-                      width: `${songProgress * 100}%`,
-                    }}
-                  />
+                <div className="tray p-1">
+                  <div className="h-4 w-full bg-gray-900 rounded-full overflow-hidden shadow-inner border border-gray-700">
+                    <div
+                      className="h-full bg-blue-500"
+                      style={{
+                        width: `${songProgress * 100}%`,
+                      }}
+                    />
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
           {/* Tracks list */}
-          <div className="p-6 space-y-4 bg-white dark:bg-gray-800">
+          <div className="p-2 sm:p-6 space-y-4 bg-white dark:bg-gray-800">
+            {isUploading && (
+              <div className="flex items-center justify-center gap-2 p-4 text-blue-600 dark:text-blue-400">
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                <span>Uploading track...</span>
+              </div>
+            )}
             {song.tracks.map((track) => (
               <div
                 key={track.id}
-                className="p-4 rounded-lg border dark:border-gray-700"
+                className="p-2 sm:p-4 rounded-lg border dark:border-gray-700"
               >
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="flex items-center gap-4 flex-1 min-w-0">
                     {/* Play/Stop button */}
                     <button
                       onClick={() => toggleTrackPlaying(track)}
-                      className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors shadow-lg border border-blue-500 active:shadow-inner"
+                      className="chonk square blue flex-shrink-0 flex items-center justify-center"
                     >
                       {trackPlaybackStates[track.id]?.isPlaying ? (
                         <svg
@@ -1165,7 +1189,7 @@ export default function SongPage() {
                     </button>
 
                     {/* Progress bar and time */}
-                    <div className="flex-1 flex items-center gap-3 min-w-0">
+                    <div className="flex-1 flex items-center gap-3 min-w-0 tray px-3 py-1">
                       <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-blue-500"
