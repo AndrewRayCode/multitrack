@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { Metadata } from 'next';
+export const metadata: Metadata = {
+  title: 'Multitrack Recorder',
+  description: 'Record and edit garbage with friends!',
+};
 
 interface Track {
   id: string;
@@ -12,6 +17,16 @@ interface Track {
 
 interface AudioBufferCache {
   [trackId: string]: AudioBuffer;
+}
+
+interface TrackPlaybackState {
+  isPlaying: boolean;
+  progress: number;
+  duration: number;
+}
+
+interface TrackPlaybackStates {
+  [trackId: string]: TrackPlaybackState;
 }
 
 interface Song {
@@ -53,6 +68,40 @@ export default function SongPage() {
   const currentBeatRef = useRef(0);
   const [hasMicrophoneAccess, setHasMicrophoneAccess] = useState(false);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const [trackPlaybackStates, setTrackPlaybackStates] =
+    useState<TrackPlaybackStates>({});
+  const trackSourcesRef = useRef<{
+    [trackId: string]: AudioBufferSourceNode | null;
+  }>({});
+  const trackStartTimeRef = useRef<{ [trackId: string]: number }>({});
+  const trackProgressRafRef = useRef<{ [trackId: string]: number }>({});
+  const [songProgress, setSongProgress] = useState(0);
+  const songProgressRafRef = useRef<number | null>(null);
+  const songStartTimeRef = useRef<number | null>(null);
+  const maxTrackDurationRef = useRef<number>(0);
+  const isPlayingRef = useRef(false);
+
+  // Update page title when song loads
+  useEffect(() => {
+    if (song?.name) {
+      document.title = `${song.name} - Multitrack Recorder`;
+    } else {
+      document.title = 'Loading... - Multitrack Recorder';
+    }
+    return () => {
+      document.title = 'Multitrack Recorder';
+    };
+  }, [song?.name]);
+
+  const ensureAudioContext = useCallback(async () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+    return audioContextRef.current;
+  }, []);
 
   // Clean up animation frame on unmount
   useEffect(() => {
@@ -91,12 +140,60 @@ export default function SongPage() {
       .then((res) => res.json())
       .then((data) => {
         setSong(data);
+        initializeTracks(data.tracks);
       })
       .catch((error) => console.error('Error fetching song:', error));
   }, [params.id]);
 
+  const initializeTracks = async (tracks: Track[]) => {
+    audioContextRef.current = new AudioContext();
+    const ctx = audioContextRef.current;
+
+    try {
+      await Promise.all(
+        tracks.map(async (track) => {
+          // Skip if we already have the duration in the cache
+          if (audioBufferCacheRef.current[track.id]) {
+            const cachedBuffer = audioBufferCacheRef.current[track.id];
+            setTrackPlaybackStates((prev) => ({
+              ...prev,
+              [track.id]: {
+                isPlaying: false,
+                progress: 0,
+                duration: cachedBuffer.duration,
+              },
+            }));
+            return;
+          }
+
+          // Fetch and decode the audio data
+          const response = await fetch(track.audioUrl);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+          // Cache the buffer
+          audioBufferCacheRef.current[track.id] = audioBuffer;
+
+          // Update the playback state with the duration
+          setTrackPlaybackStates((prev) => ({
+            ...prev,
+            [track.id]: {
+              isPlaying: false,
+              progress: 0,
+              duration: audioBuffer.duration,
+            },
+          }));
+        })
+      );
+    } catch (error) {
+      console.error('Error loading track durations:', error);
+    }
+  };
+
   const updateAudioLevel = () => {
     if (!analyserRef.current) {
+      console.log('no analyser');
+      animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
       return;
     }
 
@@ -113,7 +210,7 @@ export default function SongPage() {
     const average = sum / bufferLength;
 
     // Convert to percentage (0-100)
-    const volumePercentage = Math.min(average * 1.5, 100);
+    const volumePercentage = Math.min(average, 100);
 
     // Apply smoothing with previous value
     const smoothing = 0.2; // Higher = smoother, but less responsive
@@ -123,7 +220,6 @@ export default function SongPage() {
 
     // Update state for UI rendering
     setAudioLevel(audioLevelRef.current);
-
     animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
   };
 
@@ -170,15 +266,7 @@ export default function SongPage() {
   const startCountIn = async () => {
     if (!song) return;
 
-    // Create AudioContext early
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-
-    // Ensure AudioContext is running
-    if (audioContextRef.current.state === 'suspended') {
-      await audioContextRef.current.resume();
-    }
+    await ensureAudioContext();
 
     const beatInterval = (60 / song.bpm) * 1000;
     setCountIn(5);
@@ -202,22 +290,25 @@ export default function SongPage() {
     }
 
     try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext();
+      const ctx = await ensureAudioContext();
+
+      // If already playing, stop all tracks
+      if (isPlaying) {
+        stopAllTracks();
+        return;
       }
 
-      const ctx = audioContextRef.current;
-      setIsPlaying(true);
-
-      // Stop any currently playing sources
-      audioSourcesRef.current.forEach((source) => {
-        try {
-          source.stop();
-        } catch (e) {
-          // Ignore if already stopped
+      // Stop any individually playing tracks first
+      song.tracks.forEach((track) => {
+        if (trackSourcesRef.current[track.id]) {
+          stopTrack(track.id);
         }
       });
-      audioSourcesRef.current = [];
+
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      songStartTimeRef.current = ctx.currentTime;
+      maxTrackDurationRef.current = 0;
 
       // Load and play all tracks
       const playPromises = song.tracks.map(async (track) => {
@@ -231,10 +322,29 @@ export default function SongPage() {
           audioBufferCacheRef.current[track.id] = audioBuffer;
         }
 
+        // Update max duration
+        maxTrackDurationRef.current = Math.max(
+          maxTrackDurationRef.current,
+          audioBuffer.duration
+        );
+
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(ctx.destination);
         audioSourcesRef.current.push(source);
+
+        // Set initial track state
+        setTrackPlaybackStates((prev) => ({
+          ...prev,
+          [track.id]: {
+            isPlaying: true,
+            progress: 0,
+            duration: audioBuffer.duration,
+          },
+        }));
+
+        trackSourcesRef.current[track.id] = source;
+        trackStartTimeRef.current[track.id] = ctx.currentTime;
 
         source.start(0);
         source.onended = () => {
@@ -242,16 +352,76 @@ export default function SongPage() {
           if (index > -1) {
             audioSourcesRef.current.splice(index, 1);
           }
+
+          // Update individual track state when it ends
+          setTrackPlaybackStates((prev) => ({
+            ...prev,
+            [track.id]: {
+              ...prev[track.id],
+              isPlaying: false,
+              progress: 0,
+            },
+          }));
+
           if (audioSourcesRef.current.length === 0) {
             setIsPlaying(false);
+            isPlayingRef.current = false;
+            setSongProgress(0);
+            if (songProgressRafRef.current) {
+              cancelAnimationFrame(songProgressRafRef.current);
+              songProgressRafRef.current = null;
+            }
           }
         };
       });
 
       await Promise.all(playPromises);
+
+      // Start progress update loop
+      const updateAllProgress = () => {
+        if (!isPlayingRef.current || songStartTimeRef.current === null) {
+          return;
+        }
+
+        const currentTime = ctx.currentTime;
+        const elapsed = currentTime - songStartTimeRef.current;
+
+        // Update overall song Progress
+        const songProgress = Math.min(elapsed / maxTrackDurationRef.current, 1);
+        setSongProgress(songProgress);
+
+        // Update each track's progress
+        setTrackPlaybackStates((prev) => {
+          const newStates = { ...prev };
+          song.tracks.forEach((track) => {
+            const trackBuffer = audioBufferCacheRef.current[track.id];
+            if (trackBuffer) {
+              const trackProgress = Math.min(elapsed / trackBuffer.duration, 1);
+              newStates[track.id] = {
+                ...prev[track.id],
+                progress: trackProgress,
+                isPlaying: true,
+                duration: trackBuffer.duration,
+              };
+            }
+          });
+          return newStates;
+        });
+
+        if (songProgress < 1) {
+          songProgressRafRef.current = requestAnimationFrame(updateAllProgress);
+        } else {
+          console.log('stopping all tracks');
+          stopAllTracks();
+        }
+      };
+
+      songProgressRafRef.current = requestAnimationFrame(updateAllProgress);
     } catch (error) {
       console.error('Error playing tracks:', error);
       setIsPlaying(false);
+      isPlayingRef.current = false;
+      setSongProgress(0);
     }
   };
 
@@ -259,21 +429,17 @@ export default function SongPage() {
     if (!song) return;
 
     try {
+      await ensureAudioContext();
+
       setErrorMessage(null);
       setAudioChunks([]);
       audioChunksRef.current = [];
-      dataArrayRef.current = null;
       audioLevelRef.current = 0;
       setAudioLevel(0);
       setRemainingBars(song.numberOfBars);
 
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext();
-      }
-
-      // Ensure recording AudioContext is in running state
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
+      if (!microphoneStreamRef.current) {
+        throw new Error('Microphone stream not found');
       }
 
       // Calculate total recording duration based on BPM and number of bars
@@ -303,42 +469,15 @@ export default function SongPage() {
         }, totalDuration);
       }
 
-      // Use the stored stream if available, otherwise request a new one
-      let stream = microphoneStreamRef.current;
-      if (!stream) {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: false,
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        });
-        microphoneStreamRef.current = stream;
-      }
-
-      // Create and configure analyser node
-      const analyser = audioContextRef.current.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-      analyserRef.current = analyser;
-
-      dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
-
-      // Create source from microphone stream and connect to analyser
-      const micSource = audioContextRef.current.createMediaStreamSource(stream);
-      micSource.connect(analyser);
-
-      // Start volume meter immediately after connecting microphone
-      updateAudioLevel();
-
       // Create MediaRecorder
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : 'audio/mp4',
-        audioBitsPerSecond: 128000,
-      });
+      const recorder =
+        mediaRecorder.current ||
+        new MediaRecorder(microphoneStreamRef.current, {
+          mimeType: MediaRecorder.isTypeSupported('audio/webm')
+            ? 'audio/webm'
+            : 'audio/mp4',
+          audioBitsPerSecond: 128000,
+        });
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
@@ -369,29 +508,33 @@ export default function SongPage() {
         setRecordingTime(0);
 
         // Clean up
-        stream.getTracks().forEach((track) => track.stop());
-        micSource.disconnect();
-        analyser.disconnect();
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
-          animationFrameRef.current = null;
-        }
-        audioContextRef.current?.close();
-        audioContextRef.current = null;
-        analyserRef.current = null;
-        isRecordingRef.current = false;
+        // microphoneStreamRef
+        //   .current!.getTracks()
+        //   .forEach((track) => track.stop());
+        // micSource.disconnect();
+        // analyser.disconnect();
+        // if (animationFrameRef.current) {
+        //   cancelAnimationFrame(animationFrameRef.current);
+        //   animationFrameRef.current = null;
+        // }
+        // audioContextRef.current?.close();
+        // audioContextRef.current = null;
+        // analyserRef.current = null;
+        // isRecordingRef.current = false;
 
-        // Reset volume meter
-        audioLevelRef.current = 0;
-        setAudioLevel(0);
+        // // Reset volume meter
+        // audioLevelRef.current = 0;
+        // setAudioLevel(0);
       };
 
+      console.log('recorder state before start', recorder.state);
       mediaRecorder.current = recorder;
-      recorder.start(); // Collect data every second
+      recorder.start();
       setIsRecording(true);
       isRecordingRef.current = true;
       playAllTracks();
     } catch (error) {
+      console.log('reorder', mediaRecorder.current);
       console.error('Error accessing microphone:', error);
       let errorMessage = 'Error accessing microphone. ';
 
@@ -419,18 +562,18 @@ export default function SongPage() {
       audioChunksRef.current = [];
       setRecordingTime(0);
 
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-      audioContextRef.current?.close();
-      audioContextRef.current = null;
-      analyserRef.current = null;
-      isRecordingRef.current = false;
+      // if (animationFrameRef.current) {
+      //   cancelAnimationFrame(animationFrameRef.current);
+      //   animationFrameRef.current = null;
+      // }
+      // audioContextRef.current?.close();
+      // audioContextRef.current = null;
+      // analyserRef.current = null;
+      // isRecordingRef.current = false;
 
-      // Reset volume meter
-      audioLevelRef.current = 0;
-      setAudioLevel(0);
+      // // Reset volume meter
+      // audioLevelRef.current = 0;
+      // setAudioLevel(0);
 
       setErrorMessage(errorMessage);
       setIsRecording(false);
@@ -439,6 +582,7 @@ export default function SongPage() {
 
   const stopRecording = () => {
     if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
+      console.log('stopping recorder');
       mediaRecorder.current.stop();
       setIsRecording(false);
       isRecordingRef.current = false;
@@ -510,6 +654,7 @@ export default function SongPage() {
   };
 
   const stopAllTracks = () => {
+    // Stop all audio sources
     audioSourcesRef.current.forEach((source) => {
       try {
         source.stop();
@@ -518,7 +663,39 @@ export default function SongPage() {
       }
     });
     audioSourcesRef.current = [];
+
+    // Stop all progress animations
+    if (songProgressRafRef.current) {
+      cancelAnimationFrame(songProgressRafRef.current);
+      songProgressRafRef.current = null;
+    }
+    Object.values(trackProgressRafRef.current).forEach((rafId) => {
+      cancelAnimationFrame(rafId);
+    });
+
+    // Reset all track states
+    if (song?.tracks) {
+      song.tracks.forEach((track) => {
+        console.log('stopping track', track.id);
+        if (trackSourcesRef.current[track.id]) {
+          trackSourcesRef.current[track.id]?.disconnect();
+          trackSourcesRef.current[track.id] = null;
+        }
+        setTrackPlaybackStates((prev) => ({
+          ...prev,
+          [track.id]: {
+            ...prev[track.id],
+            isPlaying: false,
+            progress: 0,
+          },
+        }));
+      });
+    }
+
+    setSongProgress(0);
     setIsPlaying(false);
+    isPlayingRef.current = false;
+    songStartTimeRef.current = null;
   };
 
   const deleteTrack = async (trackId: string) => {
@@ -553,7 +730,7 @@ export default function SongPage() {
   // Format seconds into MM:SS
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
+    const remainingSeconds = Math.floor(seconds % 60);
     return `${minutes.toString().padStart(2, '0')}:${remainingSeconds
       .toString()
       .padStart(2, '0')}`;
@@ -566,6 +743,8 @@ export default function SongPage() {
 
   const requestMicrophoneAccess = async () => {
     try {
+      const ctx = await ensureAudioContext();
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: false,
         audio: {
@@ -574,9 +753,24 @@ export default function SongPage() {
           autoGainControl: false,
         },
       });
-
-      // Store the stream instead of stopping it
       microphoneStreamRef.current = stream;
+
+      // Create and configure analyser node
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      analyserRef.current = analyser;
+
+      dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+
+      // Create source from microphone stream and connect to analyser
+      const micSource = ctx.createMediaStreamSource(stream);
+      micSource.connect(analyser);
+
+      console.log('mic source connected');
+      // Start volume meter immediately after connecting microphone
+      updateAudioLevel();
+
       setHasMicrophoneAccess(true);
       setErrorMessage(null);
     } catch (error) {
@@ -600,6 +794,129 @@ export default function SongPage() {
       setErrorMessage(errorMessage);
     }
   };
+
+  const toggleTrackPlaying = async (track: Track) => {
+    if (isPlayingRef.current) {
+      return;
+    }
+
+    try {
+      const ctx = await ensureAudioContext();
+
+      // Stop if already playing
+      if (trackSourcesRef.current[track.id]) {
+        stopTrack(track.id);
+        return;
+      }
+
+      let audioBuffer = audioBufferCacheRef.current[track.id];
+
+      // If buffer isn't cached, fetch and decode it
+      if (!audioBuffer) {
+        const response = await fetch(track.audioUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        audioBufferCacheRef.current[track.id] = audioBuffer;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+
+      // Store the source and start time
+      trackSourcesRef.current[track.id] = source;
+      trackStartTimeRef.current[track.id] = ctx.currentTime;
+
+      // Update playback state
+      setTrackPlaybackStates((prev) => ({
+        ...prev,
+        [track.id]: {
+          isPlaying: true,
+          progress: 0,
+          duration: audioBuffer.duration,
+        },
+      }));
+
+      // Start playback
+      source.start(0);
+
+      // Set up progress updates
+      const updateProgress = () => {
+        if (!trackSourcesRef.current[track.id]) return;
+
+        const elapsedTime =
+          ctx.currentTime - trackStartTimeRef.current[track.id];
+        const progress = Math.min(elapsedTime / audioBuffer.duration, 1);
+
+        setTrackPlaybackStates((prev) => ({
+          ...prev,
+          [track.id]: {
+            ...prev[track.id],
+            progress: progress,
+          },
+        }));
+
+        if (progress < 1) {
+          trackProgressRafRef.current[track.id] =
+            requestAnimationFrame(updateProgress);
+        }
+      };
+
+      trackProgressRafRef.current[track.id] =
+        requestAnimationFrame(updateProgress);
+
+      // Handle playback end
+      source.onended = () => {
+        // Tricky flow here: When all tracks are played, it stops any active
+        // tracks. That triggers this onend() *after* all the tracks start
+        // playing, which causes the track not to play. So don't do anything
+        // if the song is playing, to avoid cancelling the playing track.
+        if (!isPlayingRef.current) {
+          stopTrack(track.id);
+        }
+      };
+    } catch (error) {
+      console.error('Error playing track:', error);
+    }
+  };
+
+  const stopTrack = (trackId: string) => {
+    if (trackSourcesRef.current[trackId]) {
+      trackSourcesRef.current[trackId]?.stop();
+      trackSourcesRef.current[trackId]?.disconnect();
+      trackSourcesRef.current[trackId] = null;
+    }
+
+    if (trackProgressRafRef.current[trackId]) {
+      cancelAnimationFrame(trackProgressRafRef.current[trackId]);
+      delete trackProgressRafRef.current[trackId];
+    }
+
+    setTrackPlaybackStates((prev) => ({
+      ...prev,
+      [trackId]: {
+        ...prev[trackId],
+        isPlaying: false,
+        progress: 0,
+      },
+    }));
+  };
+
+  // Clean up function for track playback
+  useEffect(() => {
+    return () => {
+      // Stop all tracks and cancel all animation frames
+      Object.keys(trackSourcesRef.current).forEach((trackId) => {
+        if (trackSourcesRef.current[trackId]) {
+          trackSourcesRef.current[trackId]?.stop();
+          trackSourcesRef.current[trackId]?.disconnect();
+        }
+      });
+      Object.values(trackProgressRafRef.current).forEach((rafId) => {
+        cancelAnimationFrame(rafId);
+      });
+    };
+  }, []);
 
   if (!song) {
     return <div className="p-8">Loading...</div>;
@@ -668,7 +985,7 @@ export default function SongPage() {
                       currentBeatRef.current === 0
                         ? 'border-blue-400'
                         : 'border-amber-400'
-                    } shadow-inner transition-all duration-100`}
+                    } shadow-inner`}
                   />
                   {countIn > 0 && (
                     <span
@@ -702,7 +1019,9 @@ export default function SongPage() {
                   </div>
                 )}
                 <div className="flex flex-col gap-1 flex-grow sm:flex-grow-0">
-                  <span className="text-xs text-gray-400 font-mono">LEVEL</span>
+                  <span className="text-xs text-gray-400 font-mono">
+                    MIC LEVEL
+                  </span>
                   <div className="w-full sm:w-32 h-3 bg-gray-800 rounded-sm shadow-inner overflow-hidden border border-gray-700">
                     <div
                       className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500"
@@ -714,39 +1033,87 @@ export default function SongPage() {
             </div>
 
             {/* Control buttons */}
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
-              {!isRecording && countIn === 0 ? (
-                !hasMicrophoneAccess ? (
-                  <button
-                    onClick={requestMicrophoneAccess}
-                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-blue-500 active:shadow-inner active:translate-y-px"
-                  >
-                    Enable Microphone
-                  </button>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-row gap-2">
+                {!isRecording && countIn === 0 ? (
+                  !hasMicrophoneAccess ? (
+                    <button
+                      onClick={requestMicrophoneAccess}
+                      className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-blue-500 active:shadow-inner active:translate-y-px"
+                    >
+                      Enable Microphone
+                    </button>
+                  ) : (
+                    <button
+                      onClick={startCountIn}
+                      className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-red-500 active:shadow-inner active:translate-y-px"
+                    >
+                      Start Recording
+                    </button>
+                  )
                 ) : (
                   <button
-                    onClick={startCountIn}
-                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-red-500 active:shadow-inner active:translate-y-px"
+                    onClick={stopRecording}
+                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed active:shadow-inner active:translate-y-px"
+                    disabled={countIn > 0}
                   >
-                    Start Recording
+                    Stop Recording
                   </button>
-                )
-              ) : (
-                <button
-                  onClick={stopRecording}
-                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed active:shadow-inner active:translate-y-px"
-                  disabled={countIn > 0}
-                >
-                  Stop Recording
-                </button>
-              )}
+                )}
+                {song.tracks.length > 0 && (
+                  <button
+                    onClick={playAllTracks}
+                    className="disabled:opacity-50 disabled:cursor-not-allowed w-12 h-12 flex-shrink-0 flex items-center justify-center bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors shadow-lg border border-blue-500 active:shadow-inner"
+                    title={isPlaying ? 'Stop' : 'Play'}
+                    disabled={isRecording || !!countIn}
+                  >
+                    {isPlaying ? (
+                      <svg
+                        className="w-6 h-6"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 5h14v14H5z"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-6 h-6"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                )}
+              </div>
               {song.tracks.length > 0 && (
-                <button
-                  onClick={isPlaying ? stopAllTracks : playAllTracks}
-                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors font-bold uppercase tracking-wider text-sm sm:text-base shadow-lg border border-blue-500 active:shadow-inner active:translate-y-px"
-                >
-                  {isPlaying ? 'Stop' : 'Play All'}
-                </button>
+                <div className="h-4 w-full bg-gray-900 rounded-full overflow-hidden shadow-inner border border-gray-700">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{
+                      width: `${songProgress * 100}%`,
+                    }}
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -758,20 +1125,89 @@ export default function SongPage() {
                 key={track.id}
                 className="p-4 rounded-lg border dark:border-gray-700"
               >
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-4">
-                    <p className="text-sm text-gray-500">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    {/* Play/Stop button */}
+                    <button
+                      onClick={() => toggleTrackPlaying(track)}
+                      className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-gradient-to-b from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-500 hover:to-blue-600 transition-colors shadow-lg border border-blue-500 active:shadow-inner"
+                    >
+                      {trackPlaybackStates[track.id]?.isPlaying ? (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M6 6h4v12H6zm8 0h4v12h-4z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      )}
+                    </button>
+
+                    {/* Progress bar and time */}
+                    <div className="flex-1 flex items-center gap-3 min-w-0">
+                      <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500"
+                          style={{
+                            width: `${
+                              (trackPlaybackStates[track.id]?.progress || 0) *
+                              100
+                            }%`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-sm text-gray-500 font-mono whitespace-nowrap">
+                        {trackPlaybackStates[track.id]?.duration
+                          ? `${formatTime(
+                              (trackPlaybackStates[track.id]?.progress || 0) *
+                                trackPlaybackStates[track.id]?.duration
+                            )} / ${formatTime(
+                              trackPlaybackStates[track.id]?.duration
+                            )}`
+                          : '--:-- / --:--'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Track info and actions */}
+                  <div className="flex items-center gap-4 flex-shrink-0 justify-between sm:justify-end w-full sm:w-auto">
+                    <p className="text-sm text-gray-500 whitespace-nowrap">
                       Added {new Date(track.createdAt).toLocaleString()}
                     </p>
                     <button
                       onClick={() => deleteTrack(track.id)}
-                      className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                      className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex-shrink-0"
                       title="Delete track"
                     >
                       Delete
                     </button>
                   </div>
-                  <audio src={track.audioUrl} controls className="w-64" />
                 </div>
               </div>
             ))}
