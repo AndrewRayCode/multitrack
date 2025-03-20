@@ -35,6 +35,6 @@ export async function generateMetadata({
   };
 }
 
-export default function SongPage({ params }: { params: { id: string } }) {
+export default function SongPage() {
   return <SongPageClient />;
 }
