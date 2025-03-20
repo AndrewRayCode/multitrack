@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { getUserId } from '@/lib/userId';
 
 export default function HomePage() {
   const router = useRouter();
@@ -18,6 +19,7 @@ export default function HomePage() {
     setIsCreating(true);
 
     try {
+      const userId = getUserId();
       const response = await fetch('/api/songs', {
         method: 'POST',
         headers: {
@@ -27,6 +29,7 @@ export default function HomePage() {
           name,
           bpm,
           numberOfBars,
+          userId,
         }),
       });
 

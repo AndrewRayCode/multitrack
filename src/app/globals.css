@@ -31,6 +31,11 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/******************************************************************************/
+/* Audio Interface Skeumorphic Base */
+/******************************************************************************/
+
+/* Top control panel */
 .panel {
   background: linear-gradient(rgb(61, 77, 100), rgb(39, 45, 54));
   box-shadow: inset 0 1px 0px 0 rgba(255, 255, 255, 0.3),
@@ -39,6 +44,25 @@ body {
   position: relative;
 }
 
+/* Track list */
+.track-list {
+  background: linear-gradient(rgb(30 41 57), rgb(21, 26, 33));
+}
+/* Track list item */
+.track-list-item:not(:first-child) {
+  box-shadow: inset 0 1px 0 0 rgba(0, 0, 0, 0.9), inset 0 2px 0 rgb(57, 69, 82);
+}
+
+/* LCD screen */
+.screen {
+  position: relative;
+  background: oklch(0.21 0.034 264.665);
+  border-radius: 0.7rem;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8), inset 0 0 1px rgba(32, 95, 255, 0.3),
+    /* border highlight */ inset 0px 0px 2px rgba(255, 255, 255, 0.9),
+    /* thing */ inset 2px 2px 4px rgba(161, 217, 255, 0.1);
+}
+/* Tray for buttons */
 .tray {
   background: #222133;
   border-radius: 0.7rem;
@@ -46,13 +70,6 @@ body {
     0 1px 2px rgba(255, 255, 255, 0.4);
 }
 
-.screen {
-  position: relative;
-  background: oklch(0.21 0.034 264.665);
-  border-radius: 0.7rem;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8), inset 0 0 1px rgba(32, 95, 255, 0.3),
-    /* border highlight */ inset 0px 0px 2px rgba(255, 255, 255, 0.8);
-}
 /* sheen over screen */
 .screen:before {
   content: '';
@@ -69,6 +86,12 @@ body {
     rgba(0, 0, 0, 0) 100%
   );
 }
+
+/******************************************************************************/
+/* Buttons */
+/******************************************************************************/
+
+/* Chonky button */
 .chonk {
   user-select: none;
   transition: all 0.1s ease-in-out;
@@ -108,7 +131,7 @@ body {
   opacity: 0;
   width: 100%;
   z-index: -100;
-  transition: opacity 0.1s;
+  transition: opacity 0.2s;
 }
 .chonk:not([disabled]):hover:before {
   opacity: 1;
@@ -118,7 +141,7 @@ body {
   box-shadow: /* top highlight */ inset 0 -1px 0 rgba(255, 255, 255, 0.5),
     /* inner darken */ inset 0 0 40px rgba(80, 84, 87, 0.8),
     /* drop shadow */ inset 0px 4px 4px rgba(0, 0, 0, 0.4);
-  padding: 0.3rem 1.5rem 0.2rem;
+  padding: 0.8rem 1.5rem 0.7rem;
 }
 .chonk:not([disabled]):hover {
   text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5),
@@ -178,4 +201,39 @@ body {
     color-mix(in srgb, oklch(0.488 0.243 264.376) 80%, black)
   );
   color: #689dff;
+}
+
+/* inset delete button */
+.chonk.inset {
+  box-shadow: /* top highlight */ inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    /* inner brighten */ inset 0 0 5px rgba(240, 129, 129, 0.8),
+    /* inner darken */ inset 0 0 15px rgb(87, 80, 80),
+    0 0 3px rgba(225, 238, 255, 0.7);
+  outline: 1px solid #000;
+  color: rgb(66, 0, 0);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--chonk-gradient-start) 90%, red),
+    color-mix(in srgb, var(--chonk-gradient-end) 80%, red)
+  );
+}
+
+.chonk.inset:before {
+  background: radial-gradient(
+    50% 100% at 50% 110%,
+    rgb(255, 150, 150) 0%,
+    rgba(255, 0, 0, 0) 100%
+  );
+}
+
+/* Progress bar */
+.bar-track {
+  background: oklch(0.373 0.034 259.733);
+  box-shadow: inset 1px 1px 5px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0px rgba(255, 255, 255, 0.2);
+}
+
+.bar-slider {
+  background: linear-gradient(to bottom, #2b7fff, #1855b0);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.2);
 }

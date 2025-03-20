@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-
+import { getUserId } from '@/lib/userId';
 interface Track {
   id: string;
   audioUrl: string;
@@ -22,12 +22,7 @@ export default function SongsPage() {
   const [songs, setSongs] = useState<Song[]>([]);
 
   useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    fetch(
-      `/api/songbong${
-        searchParams.toString() ? `?${searchParams.toString()}` : ''
-      }`
-    )
+    fetch(`/api/songs?userId=${getUserId()}`)
       .then((res) => {
         if (res.status === 200) {
           return res.json();

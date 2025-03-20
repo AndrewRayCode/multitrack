@@ -19,6 +19,7 @@ model Song {
   name         String
   bpm          Int
   numberOfBars Int
+  userId       String
   tracks       Track[]
   createdAt    DateTime @default(now())
 }
@@ -27,6 +28,7 @@ model Track {
   id        String   @id @default(cuid())
   audioUrl  String
   songId    String
+  userId    String
   song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 }

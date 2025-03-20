@@ -13,14 +13,13 @@ const s3Client = new S3Client({
 });
 
 export async function POST(request: Request) {
-  console.log('POST');
   try {
     const formData = await request.formData();
     const audio = formData.get('audio') as Blob;
     const songId = formData.get('songId') as string;
-    console.log({ audio, songId });
+    const userId = formData.get('userId') as string;\
 
-    if (!audio || !songId) {
+    if (!audio || !songId || !userId) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -74,6 +73,7 @@ export async function POST(request: Request) {
     const track = await prisma.track.create({
       data: {
         songId,
+        userId,
         audioUrl: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
       },
     });

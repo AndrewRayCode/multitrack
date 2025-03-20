@@ -9,6 +9,7 @@ export async function POST(request: Request) {
         name: json.name,
         bpm: Math.max(30, Math.min(300, json.bpm || 120)),
         numberOfBars: Math.max(1, Math.min(4, json.numberOfBars || 4)),
+        userId: json.userId,
       },
     });
     return NextResponse.json(song);
@@ -18,9 +19,22 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const userId = url.searchParams.get('userId');
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+
     const songs = await prisma.song.findMany({
+      where: {
+        userId,
+      },
       include: {
         tracks: true,
       },

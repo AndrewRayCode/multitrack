@@ -16,14 +16,32 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    // Get the track to find its S3 key
+    const url = new URL(request.url);
+    const userId = url.searchParams.get('userId');
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Get the track to find its S3 key and validate ownership
     const track = await prisma.track.findUnique({
       where: { id },
-      select: { audioUrl: true },
+      select: { audioUrl: true, userId: true },
     });
 
     if (!track) {
       return NextResponse.json({ error: 'Track not found' }, { status: 404 });
+    }
+
+    // Validate track ownership
+    if (track.userId !== userId) {
+      return NextResponse.json(
+        { error: 'Not authorized to delete this track' },
+        { status: 403 }
+      );
     }
 
     // Extract the S3 key from the URL
