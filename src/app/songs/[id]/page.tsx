@@ -5,10 +5,11 @@ import SongPageClient from './SongPageClient';
 export async function generateMetadata({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }): Promise<Metadata> {
+  const { id } = await params;
   const song = await prisma.song.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: { name: true },
   });
 
