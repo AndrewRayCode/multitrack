@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const audio = formData.get('audio') as Blob;
     const songId = formData.get('songId') as string;
-    const userId = formData.get('userId') as string;\
+    const userId = formData.get('userId') as string;
 
     if (!audio || !songId || !userId) {
       return NextResponse.json(
