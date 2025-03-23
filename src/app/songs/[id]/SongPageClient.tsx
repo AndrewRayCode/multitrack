@@ -993,7 +993,7 @@ export default function SongPageClient({
 
         <div className="flex sm:flex-row flex-col gap-4 mb-4">
           <h1 className="text-4xl font-bold flex-grow">{song.name}</h1>
-          {
+          {(type === 'edit' || song.isUserCreator) && (
             <div className="flex flex-col gap-2">
               <div className="flex flex-col gap-2">
                 <button
@@ -1070,7 +1070,7 @@ export default function SongPageClient({
                 Warning: Anyone with the edit link can add tracks!
               </p>
             </div>
-          }
+          )}
         </div>
 
         {errorMessage && (
