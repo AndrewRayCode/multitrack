@@ -992,7 +992,7 @@ export default function SongPageClient({
         )}
 
         <div className="flex sm:flex-row flex-col gap-4 mb-4">
-          <h1 className="text-4xl font-bold">{song.name}</h1>
+          <h1 className="text-4xl font-bold flex-grow">{song.name}</h1>
           {
             <div className="flex flex-col gap-2">
               <div className="flex flex-col gap-2">
