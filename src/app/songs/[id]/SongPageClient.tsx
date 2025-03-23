@@ -980,7 +980,7 @@ export default function SongPageClient({
               </svg>
               <div>
                 <h2 className="font-semibold text-green-300">
-                  You've Been Invited!
+                  You&apos;ve Been Invited!
                 </h2>
                 <p className="text-sm text-green-200/90">
                   The creator has invited you to add tracks to this song. Enable
