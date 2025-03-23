@@ -8,9 +8,9 @@ import { USER_ID_KEY } from '@/lib/userId';
 export async function generateMetadata({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }): Promise<Metadata> {
-  const { id } = params;
+  const { id } = await params;
   const song = await prisma.song.findUnique({
     where: { id },
     select: { name: true },
@@ -38,14 +38,19 @@ export async function generateMetadata({
   };
 }
 
-export default async function SongPage({ params }: { params: { id: string } }) {
+export default async function SongPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
   // Get the user ID from cookies on the server side
   const cookieStore = await cookies();
   const userId = cookieStore.get(USER_ID_KEY)?.value || '';
 
   // Fetch the song data without the editToken
   const song = await prisma.song.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: {
       id: true,
       name: true,

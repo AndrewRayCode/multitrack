@@ -15,7 +15,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const url = new URL(request.url);
     const userId = url.searchParams.get('userId');
     const editToken = url.searchParams.get('editToken');

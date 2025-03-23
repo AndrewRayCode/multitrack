@@ -9,10 +9,10 @@ export async function generateMetadata({
   params,
   searchParams,
 }: {
-  params: { id: string };
-  searchParams: { token?: string };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ token?: string }>;
 }): Promise<Metadata> {
-  const { id } = params;
+  const { id } = await params;
   const song = await prisma.song.findUnique({
     where: { id },
     select: { name: true },
@@ -44,11 +44,11 @@ export default async function EditSongPage({
   params,
   searchParams,
 }: {
-  params: { id: string };
-  searchParams: { token?: string };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ token?: string }>;
 }) {
-  const { id } = params;
-  const { token } = searchParams;
+  const { id } = await params;
+  const { token } = await searchParams;
 
   if (!token) {
     return (
@@ -66,7 +66,7 @@ export default async function EditSongPage({
 
   // Fetch the song data without the editToken
   const song = await prisma.song.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: {
       id: true,
       name: true,
