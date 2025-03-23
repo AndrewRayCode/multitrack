@@ -1,14 +1,16 @@
 import { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
-import SongPageClient from './SongPageClient';
-import { cookies } from 'next/headers';
+import SongPageClient from '../SongPageClient';
 import { USER_ID_KEY } from '@/lib/userId';
+import { cookies } from 'next/headers';
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { token?: string };
 }): Promise<Metadata> {
   const { id } = params;
   const song = await prisma.song.findUnique({
@@ -23,22 +25,41 @@ export async function generateMetadata({
   }
 
   return {
-    title: `${song.name} - Multitrack Recorder`,
-    description: `Listen to this awesome song!`,
+    title: `Edit ${song.name} - Multitrack Recorder`,
+    description: `Create awesome music with your friends!`,
     openGraph: {
-      title: `${song.name} - Multitrack Recorder`,
-      description: `Listen to this awesome song!`,
+      title: `Edit ${song.name} - Multitrack Recorder`,
+      description: `Create awesome music with your friends!`,
       type: 'music.song',
     },
     twitter: {
       card: 'summary',
-      title: `${song.name} - Multitrack Recorder`,
-      description: `Listen to this awesome song!`,
+      title: `Edit ${song.name} - Multitrack Recorder`,
+      description: `Create awesome music with your friends!`,
     },
   };
 }
 
-export default async function SongPage({ params }: { params: { id: string } }) {
+export default async function EditSongPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { token?: string };
+}) {
+  const { id } = params;
+  const { token } = searchParams;
+
+  if (!token) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold text-red-600">Access Denied</h1>
+        <p className="mt-4">
+          Please use the edit link provided by the song creator.
+        </p>
+      </div>
+    );
+  }
   // Get the user ID from cookies on the server side
   const cookieStore = await cookies();
   const userId = cookieStore.get(USER_ID_KEY)?.value || '';
@@ -73,11 +94,10 @@ export default async function SongPage({ params }: { params: { id: string } }) {
   const isUserCreator = song.userId === userId;
   return (
     <SongPageClient
-      type="view"
+      type="edit"
       song={{
         ...song,
         isUserCreator,
-        editToken: isUserCreator ? song.editToken : undefined,
       }}
     />
   );

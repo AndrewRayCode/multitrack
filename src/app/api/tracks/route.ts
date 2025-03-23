@@ -18,11 +18,27 @@ export async function POST(request: Request) {
     const audio = formData.get('audio') as Blob;
     const songId = formData.get('songId') as string;
     const userId = formData.get('userId') as string;
+    const editToken = formData.get('editToken') as string;
 
-    if (!audio || !songId || !userId) {
+    if (!audio || !songId || !userId || !editToken) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
+      );
+    }
+
+    // Verify edit token
+    const song = await prisma.song.findUnique({
+      where: {
+        id: songId,
+        editToken: editToken,
+      },
+    });
+
+    if (!song) {
+      return NextResponse.json(
+        { error: 'Invalid edit token or song not found' },
+        { status: 403 }
       );
     }
 

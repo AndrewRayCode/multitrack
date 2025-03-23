@@ -20,6 +20,7 @@ model Song {
   bpm          Int
   numberOfBars Int
   userId       String
+  editToken    String   @unique @default(cuid())
   tracks       Track[]
   createdAt    DateTime @default(now())
 }

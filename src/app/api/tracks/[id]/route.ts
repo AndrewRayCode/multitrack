@@ -12,31 +12,40 @@ const s3Client = new S3Client({
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = await params;
+    const { id } = params;
     const url = new URL(request.url);
     const userId = url.searchParams.get('userId');
+    const editToken = url.searchParams.get('editToken');
 
-    if (!userId) {
+    if (!userId || !editToken) {
       return NextResponse.json(
-        { error: 'User ID is required' },
+        { error: 'User ID and edit token are required' },
         { status: 400 }
       );
     }
 
-    // Get the track to find its S3 key and validate ownership
+    // Get the track and verify ownership and edit token
     const track = await prisma.track.findUnique({
       where: { id },
-      select: { audioUrl: true, userId: true },
+      include: { song: true },
     });
 
     if (!track) {
       return NextResponse.json({ error: 'Track not found' }, { status: 404 });
     }
 
-    // Validate track ownership
+    // Verify edit token
+    if (track.song.editToken !== editToken) {
+      return NextResponse.json(
+        { error: 'Invalid edit token' },
+        { status: 403 }
+      );
+    }
+
+    // Verify track ownership
     if (track.userId !== userId) {
       return NextResponse.json(
         { error: 'Not authorized to delete this track' },

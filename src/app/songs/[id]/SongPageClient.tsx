@@ -1,16 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getUserId } from '@/lib/userId';
+import { Song as PrismaSong, Track as PrismaTrack } from '@prisma/client';
+import WaveSurfer from 'wavesurfer.js';
 
-interface Track {
-  id: string;
-  audioUrl: string;
-  createdAt: string;
-  userId: string;
-}
+// Extend PrismaTrack but keep the same types
+type Track = PrismaTrack;
 
 interface AudioBufferCache {
   [trackId: string]: AudioBuffer;
@@ -26,18 +23,22 @@ interface TrackPlaybackStates {
   [trackId: string]: TrackPlaybackState;
 }
 
-interface Song {
-  id: string;
-  name: string;
-  bpm: number;
-  numberOfBars: number;
-  tracks: Track[];
-  createdAt: string;
+type ClientSong = Omit<PrismaSong, 'editToken'> & {
+  tracks: PrismaTrack[];
+  editToken?: string;
+  isUserCreator: boolean;
+};
+
+interface SongPageClientProps {
+  type: 'view' | 'edit';
+  song: ClientSong;
 }
 
-export default function SongPage() {
-  const params = useParams();
-  const [song, setSong] = useState<Song | null>(null);
+export default function SongPageClient({
+  type,
+  song: initialSong,
+}: SongPageClientProps) {
+  const [song, setSong] = useState<ClientSong>(initialSong);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [remainingBars, setRemainingBars] = useState(0);
@@ -78,18 +79,44 @@ export default function SongPage() {
   const songStartTimeRef = useRef<number | null>(null);
   const maxTrackDurationRef = useRef<number>(0);
   const isPlayingRef = useRef(false);
+  const wavesurfers = useRef<WaveSurfer[]>([]);
+  const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [showCopied, setShowCopied] = useState<'view' | 'edit' | null>(null);
 
-  // Update page title when song loads
   useEffect(() => {
-    if (song?.name) {
-      document.title = `${song.name} - Multitrack Recorder`;
-    } else {
-      document.title = 'Loading... - Multitrack Recorder';
-    }
+    // Initialize WaveSurfer instances for each track
+    song.tracks.forEach((track, index) => {
+      const wavesurfer = WaveSurfer.create({
+        container: containerRefs.current[index]!,
+        waveColor: '#4a5568',
+        progressColor: '#2b6cb0',
+        cursorColor: '#2b6cb0',
+        barWidth: 2,
+        barRadius: 3,
+        cursorWidth: 1,
+        height: 20,
+        barGap: 2,
+      });
+
+      wavesurfer.load(track.audioUrl);
+      wavesurfers.current[index] = wavesurfer;
+      // We want to control the audio ourselves
+      wavesurfer.setVolume(0);
+
+      wavesurfer.on('ready', () => {
+        wavesurfer.setTime(0);
+      });
+
+      wavesurfer.on('timeupdate', (time) => {
+        setCurrentTime(time);
+      });
+    });
+
     return () => {
-      document.title = 'Multitrack Recorder';
+      wavesurfers.current.forEach((ws) => ws?.destroy());
     };
-  }, [song?.name]);
+  }, [song.tracks]);
 
   const panCenter = useCallback((source: AudioBufferSourceNode) => {
     if (!audioContextRef.current) {
@@ -152,16 +179,6 @@ export default function SongPage() {
       }
     };
   }, [isRecording]);
-
-  useEffect(() => {
-    fetch(`/api/songs/${params.id}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setSong(data);
-        initializeTracks(data.tracks);
-      })
-      .catch((error) => console.error('Error fetching song:', error));
-  }, [params.id]);
 
   const initializeTracks = async (tracks: Track[]) => {
     audioContextRef.current = new AudioContext();
@@ -311,9 +328,19 @@ export default function SongPage() {
 
       // If already playing, stop all tracks
       if (isPlaying) {
+        wavesurfers.current.forEach((ws) => {
+          ws?.setTime(0);
+          ws?.stop();
+        });
+
         stopAllTracks();
         return;
       }
+
+      wavesurfers.current.forEach((ws) => {
+        ws?.setTime(0);
+        ws?.play();
+      });
 
       // Stop any individually playing tracks first
       song.tracks.forEach((track) => {
@@ -601,17 +628,11 @@ export default function SongPage() {
 
   const uploadTrack = async (audioBlob: Blob) => {
     try {
-      // Check if the audio blob is empty
-      if (audioBlob.size === 0) {
-        setErrorMessage('No audio recorded. Please try recording again.');
-        return;
-      }
-
-      setIsUploading(true);
       const formData = new FormData();
       formData.append('audio', audioBlob);
-      formData.append('songId', params.id as string);
+      formData.append('songId', song.id);
       formData.append('userId', getUserId());
+      formData.append('editToken', song.editToken!);
 
       const response = await fetch('/api/tracks', {
         method: 'POST',
@@ -619,22 +640,23 @@ export default function SongPage() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to upload track');
+        throw new Error('Failed to upload track');
       }
 
       // Refresh song data to show new track
-      const updatedSong = await fetch(`/api/songs/${params.id}`).then((res) =>
+      const updatedSong = await fetch(`/api/songs/${song.id}`).then((res) =>
         res.json()
       );
-      setSong(updatedSong);
+      setSong({
+        ...updatedSong,
+        tracks: updatedSong.tracks,
+        editToken: song.editToken,
+        isUserCreator: song.isUserCreator,
+      });
+      initializeTracks(updatedSong.tracks);
     } catch (error) {
       console.error('Error uploading track:', error);
-      setErrorMessage(
-        error instanceof Error ? error.message : 'Error uploading track'
-      );
-    } finally {
-      setIsUploading(false);
+      setErrorMessage('Failed to upload track. Please try again.');
     }
   };
 
@@ -694,7 +716,9 @@ export default function SongPage() {
       }
 
       const response = await fetch(
-        `/api/tracks/${trackId}?userId=${getUserId()}`,
+        `/api/tracks/${trackId}?userId=${getUserId()}&editToken=${
+          song.editToken
+        }`,
         {
           method: 'DELETE',
         }
@@ -709,7 +733,7 @@ export default function SongPage() {
       delete audioBufferCacheRef.current[trackId];
 
       // Refresh song data to update the tracks list
-      const updatedSong = await fetch(`/api/songs/${params.id}`).then((res) =>
+      const updatedSong = await fetch(`/api/songs/${song.id}`).then((res) =>
         res.json()
       );
       setSong(updatedSong);
@@ -786,19 +810,23 @@ export default function SongPage() {
     }
   };
 
-  const toggleTrackPlaying = async (track: Track) => {
+  const toggleTrackPlaying = async (track: Track, index: number) => {
     if (isPlayingRef.current) {
       return;
     }
 
     try {
+      wavesurfers.current[index]?.setTime(0);
+
       const ctx = await ensureAudioContext();
 
       // Stop if already playing
       if (trackSourcesRef.current[track.id]) {
+        wavesurfers.current[index]?.stop();
         stopTrack(track.id);
         return;
       }
+      wavesurfers.current[index]?.play();
 
       let audioBuffer = audioBufferCacheRef.current[track.id];
 
@@ -910,6 +938,20 @@ export default function SongPage() {
     };
   }, []);
 
+  const copyToClipboard = async (type: 'view' | 'edit') => {
+    try {
+      const url = window.location.origin + '/songs/' + song.id;
+      const text =
+        type === 'view' ? url : url + '/edit?token=' + song.editToken;
+
+      await navigator.clipboard.writeText(text);
+      setShowCopied(type);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      setErrorMessage('Failed to copy to clipboard. Please try again.');
+    }
+  };
+
   if (!song) {
     return <div className="p-8">Loading...</div>;
   }
@@ -917,14 +959,118 @@ export default function SongPage() {
   return (
     <div className="min-h-screen p-8">
       <main className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-4 mb-8">
+        <div className="mb-3">
           <Link
             href="/songs"
-            className="text-blue-600 hover:text-blue-700 transition-colors"
+            className="text-blue-400 hover:text-blue-100 transition-colors hover:underline"
           >
-            ← Back to songs
+            ← Your Songs
           </Link>
+        </div>
+
+        {type === 'edit' && (
+          <div className="mb-5 p-2 bg-green-900/30 border border-green-500/30 rounded-lg shadow-lg backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <svg
+                className="w-6 h-6 text-green-400"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h2 className="font-semibold text-green-300">
+                  You've Been Invited!
+                </h2>
+                <p className="text-sm text-green-200/90">
+                  The creator has invited you to add tracks to this song. Enable
+                  your mic to get started.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex sm:flex-row flex-col gap-4 mb-4">
           <h1 className="text-4xl font-bold">{song.name}</h1>
+          {
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => copyToClipboard('view')}
+                  className="page-button flex justify-center"
+                >
+                  {showCopied === 'view' ? (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      View Link Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                        <path
+                          fillRule="evenodd"
+                          d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      Share View Link
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => copyToClipboard('edit')}
+                  className="page-button flex justify-center secondary"
+                >
+                  {showCopied === 'edit' ? (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      Edit Link Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                      Share Edit Link
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="text-sm text-gray-400 italic">
+                Warning: Anyone with the edit link can add tracks!
+              </p>
+            </div>
+          }
         </div>
 
         {errorMessage && (
@@ -1025,19 +1171,21 @@ export default function SongPage() {
             {/* Control buttons */}
             <div className="flex flex-col gap-4">
               <div className="flex flex-row gap-1 tray p-1">
-                {!hasMicrophoneAccess ? (
-                  <button onClick={requestMicrophoneAccess} className="chonk">
-                    Enable Microphone
-                  </button>
-                ) : (
-                  <button
-                    onClick={startCountIn}
-                    className="chonk"
-                    disabled={isRecording || !!countIn}
-                  >
-                    Start Recording
-                  </button>
-                )}
+                {(type === 'edit' || song.isUserCreator) &&
+                  (!hasMicrophoneAccess ? (
+                    <button onClick={requestMicrophoneAccess} className="chonk">
+                      Enable Microphone
+                    </button>
+                  ) : (
+                    <button
+                      onClick={startCountIn}
+                      className="chonk"
+                      disabled={isRecording || !!countIn}
+                    >
+                      Start Recording
+                    </button>
+                  ))}
+
                 {song.tracks.length > 0 && (
                   <button
                     onClick={playAllTracks}
@@ -1083,6 +1231,7 @@ export default function SongPage() {
                   </button>
                 )}
               </div>
+
               {song.tracks.length > 0 && (
                 <div className="tray p-1">
                   <div className="h-4 w-full bg-gray-900 rounded-full overflow-hidden shadow-inner border border-gray-700">
@@ -1105,19 +1254,18 @@ export default function SongPage() {
                 No tracks yet. Start recording to add one!
               </p>
             )}
-            {song.tracks.map((track) => {
-              const isUsersTrack = track.userId === getUserId();
+            {song.tracks.map((track, index) => {
               return (
                 <div
                   key={track.id}
                   className={`flex flex-col sm:flex-row p-4 gap-4 track-list-item rounded-xl ${
-                    isUsersTrack ? 'bg-blue-50 dark:bg-blue-900/60' : ''
+                    song.isUserCreator ? 'bg-blue-50 dark:bg-blue-900/60' : ''
                   }`}
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
                     {/* Play/Stop button */}
                     <button
-                      onClick={() => toggleTrackPlaying(track)}
+                      onClick={() => toggleTrackPlaying(track, index)}
                       className="chonk square blue flex-shrink-0 flex items-center justify-center"
                     >
                       {trackPlaybackStates[track.id]?.isPlaying ? (
@@ -1157,6 +1305,12 @@ export default function SongPage() {
                       )}
                     </button>
 
+                    <div
+                      ref={(el) => {
+                        containerRefs.current[index] = el;
+                      }}
+                      className="w-full"
+                    />
                     {/* Progress bar */}
                     <div className="flex-1 min-w-0">
                       <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -1170,14 +1324,14 @@ export default function SongPage() {
                           }}
                         />
                       </div>
-                      <div className="mt-1 flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                      {/* <div className="mt-1 flex justify-between text-sm text-gray-500 dark:text-gray-400">
                         <span>00:00</span>
                         <span>
                           {formatTime(
                             trackPlaybackStates[track.id]?.duration || 0
                           )}
                         </span>
-                      </div>
+                      </div> */}
                     </div>
                   </div>
 
@@ -1185,7 +1339,7 @@ export default function SongPage() {
                     <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {new Date(track.createdAt).toLocaleDateString()}
                     </span>
-                    {isUsersTrack && (
+                    {song.isUserCreator && (
                       <button
                         onClick={() => deleteTrack(track.id)}
                         className="chonk inset square flex-shrink-0"
